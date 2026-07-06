@@ -1,21 +1,32 @@
 # Item Notifier
 
-Android app that watches [Terminal X](https://www.terminalx.com) product pages and
-notifies you when the size you want is back in stock — e.g. the ASICS Novablast 5
-in size 44.
+Android app that watches Israeli shop product pages and notifies you when the
+size you want is back in stock — e.g. the ASICS Novablast 5 in size 44 on
+Terminal X — and when a tracked item's price drops or gets a promo badge.
+
+## Supported shops
+
+| Adapter | Shops | Granularity |
+|---|---|---|
+| **Terminal X** | terminalx.com | per size + color, price, promo badges |
+| **Shopify** | Any Shopify shop — Fox, Foot Locker IL, Laline, Fox Home, and many other BuyMe-accepting stores (product links contain `/products/…`) | per size + color, price, sale price |
+| **Generic (JSON-LD)** | Most other shops (schema.org Product metadata) | whole product, price |
 
 ## How it works
 
-Terminal X product pages are server-side rendered and embed the complete product
-state — every color/size variant and its live stock status — in a
-`window.__INITIAL_STATE__` JSON blob. The app:
-
 1. Fetches the product page you added (plain HTTPS GET, like a mobile browser).
-2. Extracts and parses that JSON (`app/.../data/network/TerminalXParser.kt`),
-   reading each variant's `stock_status2` (`IN_STOCK` / `OUT_OF_STOCK`).
-3. Compares against the last known status of the sizes you track and fires a
-   high-priority notification when a size flips from out-of-stock to in-stock.
-   Tapping the notification opens the product page so you can buy it.
+   - Terminal X pages embed the full product state — every color/size variant
+     with live stock status, prices and promo badges — in a
+     `window.__INITIAL_STATE__` JSON blob.
+   - Shopify shops serve machine-readable product JSON at
+     `/products/<handle>.js` with per-variant `available` and prices.
+   - Other shops: the schema.org `Product` JSON-LD embedded for search engines
+     gives whole-product availability and price.
+2. Compares against the last known state of what you track and notifies on:
+   - **Restock** — a tracked size (or product) flips from out-of-stock to in-stock.
+   - **Price drop** — the tracked item got cheaper since the last check.
+   - **New promotion** — a promo badge (e.g. sale/LAST CALL) appeared.
+   Tapping a notification opens the product page so you can buy it.
 
 Background checks run through WorkManager on a user-configurable interval
 (15 min – 6 h, default 30 min), only when the network is up. A manual
@@ -23,15 +34,18 @@ Background checks run through WorkManager on a user-configurable interval
 
 ## Using the app
 
-1. Open a product on terminalx.com (or in the Terminal X app) and copy its link —
-   or use the system **Share** sheet and pick **Item Notifier**.
+1. Open a product in the shop's site or app and copy its link — or use the
+   system **Share** sheet and pick **Item Notifier**.
 2. In the app, tap **+**, paste the link, and tap **Load product**.
 3. Pick the color (when the product has several) and tap the size(s) you want to
-   watch — struck-through sizes are the ones currently out of stock.
-4. Tap **Track this item**. You'll get a notification when the size comes back.
+   watch — struck-through sizes are the ones currently out of stock. On shops
+   without per-size data you track the whole product instead.
+4. Tap **Track this item**. You'll get notified on restock, price drops and
+   new promotions.
 
-Any number of items can be tracked; each tracked size shows its live status,
-and items sharing a product page are checked with a single request.
+Any number of items can be tracked; each row shows live status, price (with
+pre-sale price when discounted) and promo badge, and items sharing a product
+page are checked with a single request.
 
 ## Building
 
@@ -54,19 +68,25 @@ app/src/main/java/com/arikw/itemnotifier/
 ├── data/
 │   ├── ItemRepository.kt       # check-all-and-notify core logic
 │   ├── Prefs.kt                # check-interval setting
-│   ├── db/                     # Room: TrackedItem entity + DAO
+│   ├── db/                     # Room: TrackedItem entity + DAO (+ migrations)
 │   ├── model/Product.kt        # parsed product/variant models
-│   └── network/                # OkHttp client + __INITIAL_STATE__ parser
-├── notifications/Notifier.kt   # "back in stock" notifications
+│   └── network/                # site adapters: TerminalX, Shopify, JSON-LD
+├── notifications/Notifier.kt   # restock + deal notifications
 ├── worker/StockCheckWorker.kt  # WorkManager periodic + one-shot jobs
 └── ui/                         # Compose screens (item list, add item)
 ```
 
 ## Notes & limitations
 
-- **Terminal X only.** The parser is specific to Terminal X's page structure.
-  If the site changes its rendering, tracked items will show "Check failed"
-  until the parser is updated.
+- **Coupon codes can't be auto-validated.** Checking whether a coupon code
+  works requires creating a cart and applying the code through each shop's
+  checkout API — fragile, bot-protected, and against most shops' terms.
+  Instead the app tracks what shops publish openly: price drops, sale
+  (compare-at) prices and promo badges on the items you track.
+- If a shop changes its page structure, its tracked items will show
+  "Check failed" until the matching adapter is updated.
+- Shopify's product JSON carries no currency; the app assumes ₪ (ILS), which
+  is right for the Israeli shops it targets.
 - WorkManager's minimum periodic interval is 15 minutes, and Android may defer
   checks in Doze mode. For the most reliable timing, exclude the app from
   battery optimization (Settings → Apps → Item Notifier → Battery → Unrestricted).

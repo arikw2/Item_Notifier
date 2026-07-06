@@ -28,6 +28,15 @@ class TerminalXParserTest {
         assertNotNull(snapshot.imageUrl)
         assertTrue(snapshot.imageUrl!!.startsWith("https://"))
         assertEquals("R323060001", snapshot.parentSku)
+        assertEquals("Terminal X", snapshot.siteName)
+    }
+
+    @Test
+    fun `parses price and promo badge`() {
+        val snapshot = TerminalXParser.parse(html)
+        assertEquals(699.9, snapshot.price!!, 0.001)
+        assertEquals("ILS", snapshot.currency)
+        assertEquals("LAST CALL", snapshot.promoText)
     }
 
     @Test

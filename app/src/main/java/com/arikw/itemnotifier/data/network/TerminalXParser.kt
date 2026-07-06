@@ -76,6 +76,7 @@ object TerminalXParser {
 
         val variants = mutableListOf<Variant>()
         var parentName: String? = null
+        var promoText: String? = null
         mainProduct.optJSONArray("variants")?.forEachObject { variant ->
             val product = variant.optJSONObject("product") ?: return@forEachObject
             val sku = product.optString("sku")
@@ -99,12 +100,22 @@ object TerminalXParser {
             }
 
             val inStock = product.optString("stock_status2") == "IN_STOCK"
-            variants += Variant(sku, colorIndex, colorLabel, sizeIndex, sizeLabel, inStock)
+            val (final, regular, _) = priceRange(product)
+            variants += Variant(
+                sku, colorIndex, colorLabel, sizeIndex, sizeLabel, inStock,
+                price = final,
+                compareAtPrice = regular?.takeIf { final != null && it > final },
+            )
 
             if (parentName == null) {
                 parentName = product.optJSONObject("parent_product")
                     ?.optJSONObject("product")
                     ?.optString("name")
+                    ?.takeIf { it.isNotEmpty() }
+            }
+            if (promoText == null) {
+                promoText = product.optJSONObject("state_stampa")
+                    ?.optString("text")
                     ?.takeIf { it.isNotEmpty() }
             }
         }
@@ -119,6 +130,7 @@ object TerminalXParser {
             ?.optString("url")
             ?.takeIf { it.startsWith("http") }
 
+        val (final, regular, currency) = priceRange(mainProduct)
         return ProductSnapshot(
             parentSku = mainProduct.optString("sku").takeIf { it.isNotEmpty() },
             name = name,
@@ -126,6 +138,25 @@ object TerminalXParser {
             colors = colors,
             sizes = sizes,
             variants = variants,
+            siteName = "Terminal X",
+            price = final ?: variants.firstNotNullOfOrNull { it.price },
+            compareAtPrice = regular?.takeIf { final != null && it > final },
+            currency = currency ?: "ILS",
+            promoText = promoText,
+        )
+    }
+
+    /** Reads Magento's price_range: (final price, regular price, currency). */
+    private fun priceRange(obj: JSONObject): Triple<Double?, Double?, String?> {
+        val minimum = obj.optJSONObject("price_range")
+            ?.optJSONObject("minimum_price")
+            ?: return Triple(null, null, null)
+        val final = minimum.optJSONObject("final_price")
+        val regular = minimum.optJSONObject("regular_price")
+        return Triple(
+            final?.optDouble("value")?.takeIf { !it.isNaN() },
+            regular?.optDouble("value")?.takeIf { !it.isNaN() },
+            final?.optString("currency")?.takeIf { it.isNotEmpty() },
         )
     }
 

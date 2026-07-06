@@ -30,38 +30,70 @@ object Notifier {
 
     /** Fires a "back in stock" notification; tapping it opens the product page. */
     fun notifyInStock(context: Context, item: TrackedItem) {
-        if (context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED &&
-            android.os.Build.VERSION.SDK_INT >= 33
+        val what = buildString {
+            append(item.name)
+            append(" — ")
+            append(itemDescription(item))
+        }
+        post(
+            context, item,
+            notificationId = item.id.toInt() * 10,
+            title = "Back in stock!",
+            text = what,
+            bigText = "${item.name}\n${itemDescription(item)} is available now. " +
+                "Tap to open ${item.siteName ?: "the shop"}."
+        )
+    }
+
+    /** Fires a deal notification (price drop or new promotion). */
+    fun notifyDeal(context: Context, item: TrackedItem, dealText: String) {
+        post(
+            context, item,
+            notificationId = item.id.toInt() * 10 + 1,
+            title = dealText,
+            text = "${item.name} — ${itemDescription(item)}",
+            bigText = "${item.name}\n${itemDescription(item)}\n$dealText. " +
+                "Tap to open ${item.siteName ?: "the shop"}."
+        )
+    }
+
+    private fun itemDescription(item: TrackedItem): String = buildString {
+        if (item.isWholeProduct) append("Product") else append("Size ${item.sizeLabel}")
+        item.colorLabel?.let { append(" · $it") }
+    }
+
+    private fun post(
+        context: Context,
+        item: TrackedItem,
+        notificationId: Int,
+        title: String,
+        text: String,
+        bigText: String,
+    ) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
 
         val openPage = PendingIntent.getActivity(
             context,
-            item.id.toInt(),
+            notificationId,
             Intent(Intent.ACTION_VIEW, Uri.parse(item.url)),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val sizeText = buildString {
-            append("Size ${item.sizeLabel}")
-            item.colorLabel?.let { append(" · $it") }
-        }
-
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_notify)
-            .setContentTitle("Back in stock!")
-            .setContentText("${item.name} — $sizeText")
-            .setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText("${item.name}\n$sizeText is available now. Tap to open Terminal X.")
-            )
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
             .setContentIntent(openPage)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        NotificationManagerCompat.from(context).notify(item.id.toInt(), notification)
+        NotificationManagerCompat.from(context).notify(notificationId, notification)
     }
 }

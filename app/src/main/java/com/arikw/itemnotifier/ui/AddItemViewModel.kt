@@ -38,7 +38,7 @@ class AddItemViewModel(application: Application) : AndroidViewModel(application)
     fun loadProduct(rawUrl: String) {
         val url = extractUrl(rawUrl)
         if (url == null) {
-            _state.value = AddItemUiState.Error("That doesn't look like a terminalx.com link")
+            _state.value = AddItemUiState.Error("That doesn't look like a product link")
             return
         }
         _state.value = AddItemUiState.Loading
@@ -102,6 +102,11 @@ class AddItemViewModel(application: Application) : AndroidViewModel(application)
                     },
                     lastCheckedAt = now,
                     createdAt = now,
+                    siteName = snapshot.siteName,
+                    lastPrice = variant?.price ?: snapshot.price,
+                    lastWasPrice = variant?.compareAtPrice ?: snapshot.compareAtPrice,
+                    currency = snapshot.currency,
+                    promoText = snapshot.promoText,
                 )
             }
 
@@ -112,10 +117,44 @@ class AddItemViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** For sites without per-size data: track availability of the whole product. */
+    fun saveWholeProduct() {
+        val current = _state.value as? AddItemUiState.Loaded ?: return
+        val snapshot = current.snapshot
+        val now = System.currentTimeMillis()
+
+        val item = TrackedItem(
+            url = current.url,
+            name = snapshot.name,
+            imageUrl = snapshot.imageUrl,
+            colorIndex = null,
+            colorLabel = null,
+            sizeLabel = "",
+            sizeIndex = null,
+            lastStatus = when (snapshot.anyAvailable()) {
+                true -> StockStatus.IN_STOCK
+                false -> StockStatus.OUT_OF_STOCK
+                null -> StockStatus.UNKNOWN
+            },
+            lastCheckedAt = now,
+            createdAt = now,
+            siteName = snapshot.siteName,
+            lastPrice = snapshot.price,
+            lastWasPrice = snapshot.compareAtPrice,
+            currency = snapshot.currency,
+            promoText = snapshot.promoText,
+        )
+
+        viewModelScope.launch {
+            repository.addItems(listOf(item))
+            _saved.value = true
+        }
+    }
+
     companion object {
-        /** Pulls the first terminalx.com URL out of shared/pasted text. */
+        /** Pulls the first URL out of shared/pasted text. */
         fun extractUrl(text: String): String? {
-            val match = Regex("""https?://(?:www\.)?terminalx\.com/\S+""")
+            val match = Regex("""https?://\S+""")
                 .find(text.trim())
                 ?: return null
             return match.value.trimEnd('.', ',', ')', ']')

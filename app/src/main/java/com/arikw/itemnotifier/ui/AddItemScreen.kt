@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.arikw.itemnotifier.data.ItemRepository
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -109,8 +110,11 @@ fun AddItemScreen(
             when (val s = state) {
                 is AddItemUiState.Idle -> {
                     Text(
-                        "Open a product on terminalx.com (or in their app), copy or " +
-                            "share its link here, then pick the sizes you want to watch.",
+                        "Paste or share a product link, then pick the sizes to watch.\n\n" +
+                            "Works with Terminal X and any Shopify-based shop — Fox, " +
+                            "Foot Locker IL, Laline, Fox Home and many more stores " +
+                            "that accept BuyMe. Other shops usually work too, with " +
+                            "whole-product tracking.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -138,6 +142,7 @@ fun AddItemScreen(
                         onColorSelect = viewModel::selectColor,
                         onSizeToggle = viewModel::toggleSize,
                         onSave = viewModel::save,
+                        onSaveWholeProduct = viewModel::saveWholeProduct,
                     )
                 }
             }
@@ -154,6 +159,7 @@ private fun ProductDetails(
     onColorSelect: (Int) -> Unit,
     onSizeToggle: (Int) -> Unit,
     onSave: () -> Unit,
+    onSaveWholeProduct: () -> Unit,
 ) {
     val snapshot = state.snapshot
 
@@ -166,12 +172,44 @@ private fun ProductDetails(
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         )
-        Text(
-            snapshot.name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 12.dp)
-        )
+        Column(modifier = Modifier.padding(start = 12.dp)) {
+            Text(
+                snapshot.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                snapshot.siteName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            snapshot.price?.let { price ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ItemRepository.formatPrice(price, snapshot.currency),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    snapshot.compareAtPrice?.let { was ->
+                        Text(
+                            ItemRepository.formatPrice(was, snapshot.currency),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            textDecoration = TextDecoration.LineThrough,
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+                }
+            }
+            snapshot.promoText?.let { promo ->
+                Text(
+                    promo,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
     }
 
     if (snapshot.colors.size > 1) {
@@ -187,13 +225,27 @@ private fun ProductDetails(
         }
     }
 
-    Text("Sizes to watch", style = MaterialTheme.typography.titleSmall)
     if (snapshot.sizes.isEmpty()) {
+        // No per-size data (e.g. generic sites) — offer whole-product tracking.
+        val available = snapshot.anyAvailable()
         Text(
-            "This product has no size options — tracking isn't supported for it yet.",
-            color = MaterialTheme.colorScheme.error
+            when (available) {
+                true -> "This product is currently in stock."
+                false -> "This product is currently out of stock — you'll be " +
+                    "notified when it's back."
+                null -> "This shop doesn't report availability up front; the app " +
+                    "will still watch the page for changes."
+            },
+            style = MaterialTheme.typography.bodyMedium,
         )
+        Button(
+            onClick = onSaveWholeProduct,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Track this product")
+        }
     } else {
+        Text("Sizes to watch", style = MaterialTheme.typography.titleSmall)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)

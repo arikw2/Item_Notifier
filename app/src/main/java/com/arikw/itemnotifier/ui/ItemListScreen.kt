@@ -47,10 +47,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.arikw.itemnotifier.data.ItemRepository
 import com.arikw.itemnotifier.data.Prefs
 import com.arikw.itemnotifier.data.db.StockStatus
 import com.arikw.itemnotifier.data.db.TrackedItem
@@ -129,7 +131,12 @@ fun ItemListScreen(
         AlertDialog(
             onDismissRequest = { itemPendingDelete = null },
             title = { Text("Stop tracking?") },
-            text = { Text("${item.name} — size ${item.sizeLabel}") },
+            text = {
+                Text(
+                    if (item.isWholeProduct) item.name
+                    else "${item.name} — size ${item.sizeLabel}"
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteItem(item)
@@ -159,7 +166,7 @@ private fun EmptyState(modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(top = 16.dp)
             )
             Text(
-                "Tap + and paste a Terminal X product link\nto get notified when your size is back.",
+                "Tap + and paste a product link from Terminal X,\nFox, Foot Locker, Laline or another shop\nto get notified when your size is back.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(top = 8.dp)
@@ -206,12 +213,45 @@ private fun TrackedItemRow(
                 )
                 Text(
                     buildString {
-                        append("Size ${item.sizeLabel}")
+                        if (item.isWholeProduct) append("Whole product")
+                        else append("Size ${item.sizeLabel}")
                         item.colorLabel?.let { append(" · $it") }
+                        item.siteName?.let { append(" · $it") }
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.outline
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    item.lastPrice?.let { price ->
+                        Text(
+                            ItemRepository.formatPrice(price, item.currency),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    item.lastWasPrice?.let { was ->
+                        Text(
+                            ItemRepository.formatPrice(was, item.currency),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            textDecoration = TextDecoration.LineThrough,
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
+                    item.promoText?.let { promo ->
+                        Text(
+                            promo,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(start = 8.dp),
+                            maxLines = 1,
+                        )
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 4.dp)

@@ -1,18 +1,18 @@
 package com.arikw.itemnotifier.data.model
 
-/** One selectable color of a product (Terminal X "color" configurable option). */
+/** One selectable color of a product. */
 data class ColorOption(
     val valueIndex: Int,
     val label: String,
 )
 
-/** One selectable size of a product (Terminal X "size" configurable option). */
+/** One selectable size of a product. */
 data class SizeOption(
     val valueIndex: Int,
     val label: String,
 )
 
-/** A concrete purchasable variant (color + size combination) and its live stock state. */
+/** A concrete purchasable variant (color + size combination) and its live state. */
 data class Variant(
     val sku: String,
     val colorIndex: Int?,
@@ -20,9 +20,13 @@ data class Variant(
     val sizeIndex: Int?,
     val sizeLabel: String?,
     val inStock: Boolean,
+    /** Current price of this variant, in major currency units (e.g. 399.90). */
+    val price: Double? = null,
+    /** Pre-sale price when the variant is discounted; null when not on sale. */
+    val compareAtPrice: Double? = null,
 )
 
-/** Everything we could parse from a Terminal X product page. */
+/** Everything we could parse from a product page, on any supported site. */
 data class ProductSnapshot(
     val parentSku: String?,
     val name: String,
@@ -30,6 +34,17 @@ data class ProductSnapshot(
     val colors: List<ColorOption>,
     val sizes: List<SizeOption>,
     val variants: List<Variant>,
+    /** Display name of the shop this came from, e.g. "Terminal X" or "fox.co.il". */
+    val siteName: String,
+    /** Product-level price, used when a variant has no price of its own. */
+    val price: Double? = null,
+    val compareAtPrice: Double? = null,
+    /** ISO currency code when the site reports one; Israeli shops are ILS. */
+    val currency: String? = null,
+    /** Promotional badge on the product, e.g. "LAST CALL" or "30% הנחה". */
+    val promoText: String? = null,
+    /** Product-level availability for sites that don't expose per-size variants. */
+    val productAvailable: Boolean? = null,
 ) {
     /**
      * Finds the variant matching a tracked size (and color, when one was chosen).
@@ -53,5 +68,11 @@ data class ProductSnapshot(
             }
             size to (variant?.inStock == true)
         }
+    }
+
+    /** Whole-product availability: any variant in stock, or the page-level flag. */
+    fun anyAvailable(): Boolean? = when {
+        variants.isNotEmpty() -> variants.any { it.inStock }
+        else -> productAvailable
     }
 }
