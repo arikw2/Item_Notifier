@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.arikw.itemnotifier.data.ItemRepository
 import com.arikw.itemnotifier.data.Prefs
+import com.arikw.itemnotifier.data.db.SearchWatch
 import com.arikw.itemnotifier.data.db.TrackedItem
 import com.arikw.itemnotifier.worker.StockCheckWorker
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,9 @@ class ItemListViewModel(application: Application) : AndroidViewModel(application
     private val repository = ItemRepository(application)
 
     val items: StateFlow<List<TrackedItem>> = repository.observeItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val watches: StateFlow<List<SearchWatch>> = repository.observeWatches()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _refreshing = MutableStateFlow(false)
@@ -41,6 +45,10 @@ class ItemListViewModel(application: Application) : AndroidViewModel(application
 
     fun deleteItem(item: TrackedItem) {
         viewModelScope.launch { repository.deleteItem(item.id) }
+    }
+
+    fun deleteWatch(watch: SearchWatch) {
+        viewModelScope.launch { repository.deleteWatch(watch.id) }
     }
 
     fun setIntervalMinutes(minutes: Long) {

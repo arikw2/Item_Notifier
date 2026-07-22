@@ -2,9 +2,12 @@ package com.arikw.itemnotifier.data
 
 import android.content.Context
 import com.arikw.itemnotifier.data.db.AppDatabase
+import com.arikw.itemnotifier.data.db.SearchWatch
 import com.arikw.itemnotifier.data.db.StockStatus
 import com.arikw.itemnotifier.data.db.TrackedItem
 import com.arikw.itemnotifier.data.model.ProductSnapshot
+import com.arikw.itemnotifier.data.model.SearchOutcome
+import com.arikw.itemnotifier.data.network.SearchClient
 import com.arikw.itemnotifier.data.network.SiteRegistry
 import com.arikw.itemnotifier.notifications.Notifier
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 class ItemRepository(private val context: Context) {
 
     private val dao = AppDatabase.get(context).trackedItemDao()
+    private val watchDao = AppDatabase.get(context).searchWatchDao()
 
     fun observeItems(): Flow<List<TrackedItem>> = dao.observeAll()
 
@@ -22,12 +26,27 @@ class ItemRepository(private val context: Context) {
 
     suspend fun deleteItem(id: Long) = dao.delete(id)
 
+    fun observeWatches(): Flow<List<SearchWatch>> = watchDao.observeAll()
+
+    suspend fun previewSearch(kind: String, host: String, query: String): SearchOutcome =
+        SearchClient.search(kind, host, query)
+
+    suspend fun addWatch(watch: SearchWatch) = watchDao.insert(watch)
+
+    suspend fun deleteWatch(id: Long) = watchDao.delete(id)
+
     /**
      * Re-checks every tracked item; notifies on restocks, price drops and new
      * promo badges. Items sharing a product URL are checked with a single page
      * fetch. Returns the number of items that flipped to in-stock during this run.
      */
     suspend fun checkAllAndNotify(): Int {
+        val newlyInStock = checkTrackedItems()
+        checkSearchWatches()
+        return newlyInStock
+    }
+
+    private suspend fun checkTrackedItems(): Int {
         val items = dao.getAll()
         if (items.isEmpty()) return 0
 
@@ -53,6 +72,36 @@ class ItemRepository(private val context: Context) {
             }
         }
         return newlyInStock
+    }
+
+    /** Re-runs every saved search and notifies on first-seen matching products. */
+    private suspend fun checkSearchWatches() {
+        val now = System.currentTimeMillis()
+        for (watch in watchDao.getAll()) {
+            val known = watch.knownKeySet()
+            val outcome = try {
+                SearchClient.search(watch.siteKind, watch.siteHost, watch.query, skipKeys = known)
+            } catch (e: Exception) {
+                watchDao.update(watch.copy(lastCheckedAt = now, lastError = true))
+                continue
+            }
+
+            val newMatches = outcome.matches.filter { it.key !in known }
+            if (newMatches.isNotEmpty()) {
+                Notifier.notifyNewProducts(context, watch, newMatches)
+            }
+
+            watchDao.update(
+                watch.copy(
+                    // Remember everything seen (matching or not) so fuzzy search
+                    // noise is never re-inspected and never re-alerts.
+                    knownKeys = SearchWatch.encodeKeys(known + outcome.seenKeys),
+                    lastCheckedAt = now,
+                    lastMatchCount = outcome.matches.size,
+                    lastError = false,
+                )
+            )
+        }
     }
 
     private fun checkOne(item: TrackedItem, snapshot: ProductSnapshot, now: Long): TrackedItem {

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,6 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.arikw.itemnotifier.data.ItemRepository
 import com.arikw.itemnotifier.data.Prefs
+import com.arikw.itemnotifier.data.db.SearchWatch
 import com.arikw.itemnotifier.data.db.StockStatus
 import com.arikw.itemnotifier.data.db.TrackedItem
 
@@ -64,10 +66,12 @@ fun ItemListScreen(
     viewModel: ItemListViewModel = viewModel(),
 ) {
     val items by viewModel.items.collectAsState()
+    val watches by viewModel.watches.collectAsState()
     val refreshing by viewModel.refreshing.collectAsState()
     val intervalMinutes by viewModel.intervalMinutes.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var itemPendingDelete by remember { mutableStateOf<TrackedItem?>(null) }
+    var watchPendingDelete by remember { mutableStateOf<SearchWatch?>(null) }
 
     Scaffold(
         topBar = {
@@ -96,7 +100,7 @@ fun ItemListScreen(
             }
         }
     ) { padding ->
-        if (items.isEmpty()) {
+        if (items.isEmpty() && watches.isEmpty()) {
             EmptyState(Modifier.padding(padding))
         } else {
             LazyColumn(
@@ -106,6 +110,32 @@ fun ItemListScreen(
                     start = 12.dp, end = 12.dp, top = 8.dp, bottom = 88.dp
                 )
             ) {
+                if (watches.isNotEmpty()) {
+                    item(key = "watches-header") {
+                        Text(
+                            "Search watches",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                        )
+                    }
+                    items(watches, key = { "w${it.id}" }) { watch ->
+                        SearchWatchRow(
+                            watch = watch,
+                            onDelete = { watchPendingDelete = watch },
+                        )
+                    }
+                    if (items.isNotEmpty()) {
+                        item(key = "items-header") {
+                            Text(
+                                "Tracked items",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
+                            )
+                        }
+                    }
+                }
                 items(items, key = { it.id }) { item ->
                     TrackedItemRow(
                         item = item,
@@ -124,6 +154,23 @@ fun ItemListScreen(
                 showSettings = false
             },
             onDismiss = { showSettings = false }
+        )
+    }
+
+    watchPendingDelete?.let { watch ->
+        AlertDialog(
+            onDismissRequest = { watchPendingDelete = null },
+            title = { Text("Stop watching?") },
+            text = { Text("\"${watch.query}\" on ${watch.siteName}") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteWatch(watch)
+                    watchPendingDelete = null
+                }) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { watchPendingDelete = null }) { Text("Cancel") }
+            }
         )
     }
 
@@ -171,6 +218,70 @@ private fun EmptyState(modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(top = 8.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun SearchWatchRow(
+    watch: SearchWatch,
+    onDelete: () -> Unit,
+) {
+    val context = LocalContext.current
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(watch.searchUrl)))
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    "\"${watch.query}\"",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    buildString {
+                        append(watch.siteName)
+                        watch.lastMatchCount?.let { append(" · $it match${if (it == 1) "" else "es"}") }
+                        if (watch.lastError) append(" · last check failed")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (watch.lastError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.outline
+                )
+                watch.lastCheckedAt?.let { checkedAt ->
+                    Text(
+                        DateUtils.getRelativeTimeSpanString(checkedAt).toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove",
+                    tint = MaterialTheme.colorScheme.outline
+                )
+            }
         }
     }
 }

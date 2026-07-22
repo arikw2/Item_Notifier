@@ -27,6 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -60,6 +62,7 @@ fun AddItemScreen(
     val saved by viewModel.saved.collectAsState()
 
     var urlText by rememberSaveable { mutableStateOf(initialUrl ?: "") }
+    var tab by rememberSaveable { mutableStateOf(0) }
 
     LaunchedEffect(saved) {
         if (saved) onDone()
@@ -74,7 +77,7 @@ fun AddItemScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Track an item") },
+                title = { Text(if (tab == 0) "Track an item" else "Watch a search") },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -87,15 +90,48 @@ fun AddItemScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            TabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Track item") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Watch search") })
+            }
+            if (tab == 0) {
+                TrackItemTab(
+                    urlText = urlText,
+                    onUrlChange = { urlText = it },
+                    state = state,
+                    selectedColor = selectedColor,
+                    selectedSizes = selectedSizes,
+                    viewModel = viewModel,
+                )
+            } else {
+                WatchSearchTab(viewModel = viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackItemTab(
+    urlText: String,
+    onUrlChange: (String) -> Unit,
+    state: AddItemUiState,
+    selectedColor: Int?,
+    selectedSizes: Set<Int>,
+    viewModel: AddItemViewModel,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
             OutlinedTextField(
                 value = urlText,
-                onValueChange = { urlText = it },
-                label = { Text("Terminal X product link") },
-                placeholder = { Text("https://www.terminalx.com/…") },
+                onValueChange = onUrlChange,
+                label = { Text("Product link") },
+                placeholder = { Text("https://…") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
@@ -144,6 +180,137 @@ fun AddItemScreen(
                         onSave = viewModel::save,
                         onSaveWholeProduct = viewModel::saveWholeProduct,
                     )
+                }
+            }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WatchSearchTab(viewModel: AddItemViewModel) {
+    val watchState by viewModel.watchState.collectAsState()
+    var queryText by rememberSaveable { mutableStateOf("") }
+    var shopIndex by rememberSaveable { mutableStateOf(0) }
+    var customHost by rememberSaveable { mutableStateOf("") }
+
+    val shops = AddItemViewModel.WATCHABLE_SHOPS
+    val isCustom = shopIndex == shops.size
+    val shop = if (isCustom) AddItemViewModel.customShop(customHost) else shops[shopIndex]
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            "Get notified when a new product matching your search shows up — " +
+                "e.g. watch \"novablast 6\" to hear the moment it lands.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.outline
+        )
+
+        Text("Shop", style = MaterialTheme.typography.titleSmall)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            shops.forEachIndexed { index, s ->
+                FilterChip(
+                    selected = shopIndex == index,
+                    onClick = { shopIndex = index },
+                    label = { Text(s.name) }
+                )
+            }
+            FilterChip(
+                selected = isCustom,
+                onClick = { shopIndex = shops.size },
+                label = { Text("Other shop…") }
+            )
+        }
+        if (isCustom) {
+            OutlinedTextField(
+                value = customHost,
+                onValueChange = { customHost = it },
+                label = { Text("Shop address (Shopify-based)") },
+                placeholder = { Text("shop.co.il") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+
+        OutlinedTextField(
+            value = queryText,
+            onValueChange = { queryText = it },
+            label = { Text("Search for") },
+            placeholder = { Text("novablast 6") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+
+        Button(
+            onClick = { viewModel.previewWatch(shop, queryText) },
+            enabled = queryText.isNotBlank() &&
+                (!isCustom || customHost.isNotBlank()) &&
+                watchState !is WatchUiState.Loading,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Search now")
+        }
+
+        when (val s = watchState) {
+            is WatchUiState.Idle -> {}
+            is WatchUiState.Loading -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) { CircularProgressIndicator() }
+            }
+            is WatchUiState.Error -> {
+                Text(
+                    s.message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            is WatchUiState.Previewed -> {
+                Text(
+                    if (s.matches.isEmpty())
+                        "No matching products right now — perfect for watching. " +
+                            "You'll be notified when the first one arrives."
+                    else
+                        "${s.matches.size} matching product(s) exist today. They won't " +
+                            "trigger alerts — only products that appear from now on will.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                s.matches.take(5).forEach { p ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AsyncImage(
+                            model = p.imageUrl,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        )
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(p.name, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                            p.price?.let {
+                                Text(
+                                    ItemRepository.formatPrice(it, p.currency),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                        }
+                    }
+                }
+                Button(
+                    onClick = viewModel::saveWatch,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Watch \"${s.query}\" on ${s.shop.name}")
                 }
             }
         }

@@ -18,11 +18,16 @@ class Converters {
         runCatching { StockStatus.valueOf(value) }.getOrDefault(StockStatus.UNKNOWN)
 }
 
-@Database(entities = [TrackedItem::class], version = 2, exportSchema = false)
+@Database(
+    entities = [TrackedItem::class, SearchWatch::class],
+    version = 3,
+    exportSchema = false
+)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun trackedItemDao(): TrackedItemDao
+    abstract fun searchWatchDao(): SearchWatchDao
 
     companion object {
         /** v2: multi-site support + price/promo tracking. */
@@ -36,6 +41,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v3: search watches (new-product alerts). */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `search_watches` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `query` TEXT NOT NULL,
+                        `siteKind` TEXT NOT NULL,
+                        `siteHost` TEXT NOT NULL,
+                        `siteName` TEXT NOT NULL,
+                        `searchUrl` TEXT NOT NULL,
+                        `knownKeys` TEXT NOT NULL,
+                        `lastCheckedAt` INTEGER,
+                        `lastMatchCount` INTEGER,
+                        `lastError` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -45,7 +73,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "item_notifier.db"
-                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
             }
     }
 }

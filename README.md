@@ -2,7 +2,9 @@
 
 Android app that watches Israeli shop product pages and notifies you when the
 size you want is back in stock — e.g. the ASICS Novablast 5 in size 44 on
-Terminal X — and when a tracked item's price drops or gets a promo badge.
+Terminal X — when a tracked item's price drops or gets a promo badge, and when
+a **new product** matching a saved search shows up (e.g. watch "novablast 6"
+to hear the moment it lands).
 
 ## Supported shops
 
@@ -26,7 +28,25 @@ Terminal X — and when a tracked item's price drops or gets a promo badge.
    - **Restock** — a tracked size (or product) flips from out-of-stock to in-stock.
    - **Price drop** — the tracked item got cheaper since the last check.
    - **New promotion** — a promo badge (e.g. sale/LAST CALL) appeared.
+   - **New arrival** — a saved search ("search watch") found a product it has
+     never seen before whose name matches every word of the query.
    Tapping a notification opens the product page so you can buy it.
+
+### Search watches
+
+The "Watch search" tab saves a query per shop (Terminal X, Originals,
+Foot Locker IL, Laline, Fox Home, or any Shopify shop by address). Each
+background cycle re-runs the search: Terminal X results come from the
+server-rendered search page; on Shopify shops the app reads the standard
+`/search?q=…&type=product` page and resolves only never-seen-before handles
+via `/products/<handle>.js`, so periodic checks stay cheap. Because shop
+search is fuzzy (searching "novablast 6" also returns Novablast 5), a watch
+only alerts on results containing **every** word of the query, with bare
+numbers matched as standalone tokens. Everything visible when the watch is
+created is treated as old news — only later arrivals alert.
+
+Note: fox.co.il renders search results client-side, so search watches don't
+work there (item tracking does). The app tells you at preview time.
 
 Background checks run through WorkManager on a user-configurable interval
 (15 min – 6 h, default 30 min), only when the network is up. A manual

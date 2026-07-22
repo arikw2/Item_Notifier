@@ -5,9 +5,13 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.arikw.itemnotifier.data.ItemRepository
+import com.arikw.itemnotifier.data.db.SearchKind
+import com.arikw.itemnotifier.data.db.SearchWatch
 import com.arikw.itemnotifier.data.db.StockStatus
 import com.arikw.itemnotifier.data.db.TrackedItem
+import com.arikw.itemnotifier.data.model.FoundProduct
 import com.arikw.itemnotifier.data.model.ProductSnapshot
+import com.arikw.itemnotifier.data.network.SearchClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +21,22 @@ sealed interface AddItemUiState {
     data object Loading : AddItemUiState
     data class Loaded(val snapshot: ProductSnapshot, val url: String) : AddItemUiState
     data class Error(val message: String) : AddItemUiState
+}
+
+/** A shop the search-watch UI offers out of the box. */
+data class WatchableShop(val name: String, val host: String, val kind: String)
+
+sealed interface WatchUiState {
+    data object Idle : WatchUiState
+    data object Loading : WatchUiState
+    data class Previewed(
+        val matches: List<FoundProduct>,
+        val seenKeys: List<String>,
+        val shop: WatchableShop,
+        val query: String,
+    ) : WatchUiState
+
+    data class Error(val message: String) : WatchUiState
 }
 
 class AddItemViewModel(application: Application) : AndroidViewModel(application) {
@@ -151,7 +171,75 @@ class AddItemViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // ----- Search watches ("tell me when novablast 6 arrives") -----
+
+    private val _watchState = MutableStateFlow<WatchUiState>(WatchUiState.Idle)
+    val watchState: StateFlow<WatchUiState> = _watchState
+
+    fun previewWatch(shop: WatchableShop, rawQuery: String) {
+        val query = rawQuery.trim()
+        if (query.isEmpty()) return
+        _watchState.value = WatchUiState.Loading
+        viewModelScope.launch {
+            try {
+                val outcome = repository.previewSearch(shop.kind, shop.host, query)
+                _watchState.value = WatchUiState.Previewed(
+                    matches = outcome.matches,
+                    seenKeys = outcome.seenKeys,
+                    shop = shop,
+                    query = query,
+                )
+            } catch (e: Exception) {
+                _watchState.value = WatchUiState.Error(
+                    e.message ?: "Search failed — this shop may not be supported"
+                )
+            }
+        }
+    }
+
+    fun saveWatch() {
+        val preview = _watchState.value as? WatchUiState.Previewed ?: return
+        val now = System.currentTimeMillis()
+        val watch = SearchWatch(
+            query = preview.query,
+            siteKind = preview.shop.kind,
+            siteHost = preview.shop.host,
+            siteName = preview.shop.name,
+            searchUrl = SearchClient.searchUrlFor(
+                preview.shop.kind, preview.shop.host, preview.query
+            ),
+            // Everything visible right now is old news; only later arrivals alert.
+            knownKeys = SearchWatch.encodeKeys(
+                (preview.seenKeys + preview.matches.map { it.key }).toSet()
+            ),
+            lastCheckedAt = now,
+            lastMatchCount = preview.matches.size,
+            createdAt = now,
+        )
+        viewModelScope.launch {
+            repository.addWatch(watch)
+            _saved.value = true
+        }
+    }
+
     companion object {
+        /** Shops offered in the watch UI. Fox is absent: its search results are
+         *  rendered client-side, so there's nothing for the app to read. */
+        val WATCHABLE_SHOPS = listOf(
+            WatchableShop("Terminal X", "www.terminalx.com", SearchKind.TERMINALX),
+            WatchableShop("Originals", "originals.co.il", SearchKind.SHOPIFY),
+            WatchableShop("Foot Locker", "footlocker.co.il", SearchKind.SHOPIFY),
+            WatchableShop("Laline", "laline.co.il", SearchKind.SHOPIFY),
+            WatchableShop("Fox Home", "foxhome.co.il", SearchKind.SHOPIFY),
+        )
+
+        fun customShop(host: String): WatchableShop {
+            val clean = host.trim()
+                .removePrefix("https://").removePrefix("http://")
+                .substringBefore('/')
+            return WatchableShop(clean.removePrefix("www."), clean, SearchKind.SHOPIFY)
+        }
+
         /** Pulls the first URL out of shared/pasted text. */
         fun extractUrl(text: String): String? {
             val match = Regex("""https?://\S+""")

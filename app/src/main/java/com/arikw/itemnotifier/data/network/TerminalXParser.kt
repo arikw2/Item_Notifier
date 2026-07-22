@@ -25,10 +25,24 @@ object TerminalXParser {
      * the surrounding script tag early — we undo that before parsing.
      */
     fun parse(html: String): ProductSnapshot {
+        val root = extractState(html)
+
+        val mainProduct = root.optJSONObject("productPageStoreData")
+            ?.optJSONObject("data")
+            ?.optJSONObject("mainProduct")
+            ?: throw ProductParseException(
+                "No product data on page — is this a product URL (not a category/search page)?"
+            )
+
+        return parseMainProduct(mainProduct, html)
+    }
+
+    /** Extracts the `window.__INITIAL_STATE__` JSON any Terminal X page embeds. */
+    fun extractState(html: String): JSONObject {
         val markerIdx = html.indexOf(STATE_MARKER)
         if (markerIdx < 0) {
             throw ProductParseException(
-                "Page has no $STATE_MARKER — not a Terminal X product page?"
+                "Page has no $STATE_MARKER — not a Terminal X page?"
             )
         }
         val braceStart = html.indexOf('{', markerIdx)
@@ -41,20 +55,11 @@ object TerminalXParser {
             .removeSuffix(";")
             .replace("\"+\"", "")
 
-        val root = try {
+        return try {
             JSONObject(blob)
         } catch (e: Exception) {
             throw ProductParseException("Failed to parse state JSON", e)
         }
-
-        val mainProduct = root.optJSONObject("productPageStoreData")
-            ?.optJSONObject("data")
-            ?.optJSONObject("mainProduct")
-            ?: throw ProductParseException(
-                "No product data on page — is this a product URL (not a category/search page)?"
-            )
-
-        return parseMainProduct(mainProduct, html)
     }
 
     private fun parseMainProduct(mainProduct: JSONObject, html: String): ProductSnapshot {
