@@ -66,8 +66,13 @@ object ShopifyParser {
                         colorPos = pos
                 }
             }
-            // Single-option products (just "Size"-like axis under any name).
-            if (sizePos < 0 && colorPos < 0 && options.length() == 1) sizePos = 1
+            // Single-option products (a "Size"-like axis under any name) — but not
+            // Shopify's placeholder "Title"/"Default Title" on option-less products.
+            if (sizePos < 0 && colorPos < 0 && options.length() == 1 &&
+                !options.optJSONObject(0)?.optString("name").equals("Title", ignoreCase = true)
+            ) {
+                sizePos = 1
+            }
         }
 
         val sizes = mutableListOf<SizeOption>()
